@@ -263,6 +263,14 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "data_quality_report",
+            "description": "Generate a data quality report: missing values, duplicates, constant columns, type info. ALWAYS call this first when analyzing a new dataset to understand data quality issues before drawing conclusions.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
 ]
 
 SYSTEM_PROMPT = """You are the AI analyst for Cosmo, a GPU-accelerated data visualization and analytics platform. You help users explore any dataset through natural language.
@@ -277,7 +285,8 @@ You have access to a multi-dataset workspace. Users can upload multiple CSV/JSON
 
 Key principles:
 1. Use tools to get real data — never guess
-2. ALWAYS use create_chart to visualize results — bar charts for comparisons, pie for proportions, scatter for correlations, line for trends
+2. On first analysis of any dataset, call data_quality_report to check for missing values, duplicates, and data issues BEFORE drawing conclusions
+3. ALWAYS use create_chart to visualize results — bar charts for comparisons, pie for proportions, scatter for correlations, line for trends
 3. Use control_graph to update the graph visualization — zoom, select, navigate
 4. Create dynamic links (create_links) to reveal hidden relationships
 5. Add computed columns (add_column) when you need derived features
@@ -326,12 +335,16 @@ COMPANION_SYSTEM = """You are a Companion Researcher working alongside a primary
 Your investigation theme: {theme}
 
 Core approach:
-- Read the analyst's findings and respond according to your theme
+- INDEPENDENTLY VERIFY the analyst's claims by running your own queries — never trust their numbers without checking
+- If you find the same result, say so AND explain why that gives more confidence
+- If you find a DIFFERENT result, highlight the discrepancy clearly
 - Run your OWN analyses — don't just comment, USE THE TOOLS
+- Start with data_quality_report if the analyst didn't — dirty data invalidates all conclusions
 - Create dynamic links (create_links) to reveal relationships
 - Add computed columns (add_column) when you need new features
 - Use control_graph to navigate and zoom into what you find
-- Be concise but insightful"""
+- Be concise but insightful
+- Always state your confidence level: high (verified), medium (plausible), low (needs more data)"""
 
 
 class ChatRequest(BaseModel):
@@ -553,6 +566,8 @@ def _execute_tool(name: str, args: dict) -> dict:
         return analyzer.add_column(args["name"], args["code"])
     elif name == "save_snapshot":
         return analyzer.save_snapshot(args.get("label", "snapshot"), description=args.get("description", ""))
+    elif name == "data_quality_report":
+        return analyzer.data_quality_report()
     elif name == "create_chart":
         return {
             "type": args.get("type", "bar"),

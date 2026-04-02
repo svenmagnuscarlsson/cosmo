@@ -356,8 +356,70 @@ def query_dataframe(operation: str, column: str | None = None,
         return {"error": str(e)}
 
 
+def validate_code(code: str) -> dict:
+    """Validate generated Pandas code for safety and correctness before execution."""
+    issues = []
+
+    # Dangerous operations
+    dangerous = ["os.", "subprocess", "shutil", "open(", "__import__", "eval(", "exec(",
+                 "system(", "popen(", "remove(", "rmdir(", "unlink("]
+    for d in dangerous:
+        if d in code:
+            issues.append(f"Blocked: '{d}' is not allowed in analysis code")
+
+    # Check syntax
+    try:
+        compile(code, "<validation>", "exec")
+    except SyntaxError as e:
+        issues.append(f"Syntax error on line {e.lineno}: {e.msg}")
+
+    return {"valid": len(issues) == 0, "issues": issues}
+
+
+def data_quality_report() -> dict:
+    """Generate a data quality report for the active dataset."""
+    df = get_df()
+    if df is None or df.empty:
+        return {"error": "No dataset loaded"}
+
+    report = {
+        "rows": len(df),
+        "columns": len(df.columns),
+        "missing_values": {},
+        "duplicate_rows": int(df.duplicated().sum()),
+        "duplicate_pct": round(df.duplicated().mean() * 100, 2),
+        "column_types": {},
+        "warnings": [],
+    }
+
+    for c in df.columns:
+        nulls = int(df[c].isna().sum())
+        if nulls > 0:
+            report["missing_values"][c] = {"count": nulls, "pct": round(nulls / len(df) * 100, 1)}
+        report["column_types"][c] = str(df[c].dtype)
+
+    # Warnings
+    if report["duplicate_pct"] > 10:
+        report["warnings"].append(f"{report['duplicate_pct']}% duplicate rows detected — results may be skewed")
+    for c, info in report["missing_values"].items():
+        if info["pct"] > 30:
+            report["warnings"].append(f"Column '{c}' has {info['pct']}% missing values")
+
+    # Check for constant columns (no variance)
+    for c in df.select_dtypes(include="number").columns:
+        if df[c].nunique() <= 1:
+            report["warnings"].append(f"Column '{c}' has no variance (constant)")
+
+    return report
+
+
 def run_pandas_code(code: str) -> dict:
     """Execute arbitrary Pandas code. Access: df (active), datasets (dict of all), pd, np."""
+    # Validate first
+    check = validate_code(code)
+    if not check["valid"]:
+        return {"error": "Code validation failed: " + "; ".join(check["issues"])}
+
     df = get_df().copy()
 
     namespace = {
