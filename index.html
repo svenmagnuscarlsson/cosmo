@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cosmo Filesystem</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a1a;
+      color: #e0e0e0;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      overflow: hidden;
+      display: flex;
+    }
+
+    /* ── Layout: graph left, chat right ─────────────── */
+    #graph-panel { flex: 1; position: relative; height: 100vh; }
+    #graph { width: 100%; height: 100%; }
+
+    #chat-panel {
+      width: 420px; height: 100vh; background: #0d0d20;
+      border-left: 1px solid rgba(255,255,255,0.06);
+      display: flex; flex-direction: column; z-index: 20;
+    }
+
+    /* ── Chat header ────────────────────────────────── */
+    .chat-header {
+      padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.06);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .chat-header h2 { font-size: 14px; font-weight: 600; color: #fff; }
+    .chat-header .dot { width: 8px; height: 8px; border-radius: 50%; background: #4fc3f7; }
+
+    /* ── Chat messages ──────────────────────────────── */
+    #messages {
+      flex: 1; overflow-y: auto; padding: 16px 20px;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .msg { padding: 10px 14px; border-radius: 10px; font-size: 13px; line-height: 1.6; max-width: 100%; }
+    .msg-user {
+      background: rgba(79, 195, 247, 0.12); border: 1px solid rgba(79, 195, 247, 0.2);
+      align-self: flex-end; color: #e0e0e0;
+    }
+    .msg-ai {
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
+      color: #ccc;
+    }
+    .msg-ai h1, .msg-ai h2, .msg-ai h3 {
+      color: #fff; margin: 10px 0 6px; font-size: 14px; font-weight: 600;
+    }
+    .msg-ai h1 { font-size: 16px; }
+    .msg-ai h2 { font-size: 14px; }
+    .msg-ai h3 { font-size: 13px; }
+    .msg-ai strong { color: #fff; }
+    .msg-ai em { color: #aaa; }
+    .msg-ai code {
+      background: rgba(255,255,255,0.08); padding: 1px 5px;
+      border-radius: 3px; font-size: 12px;
+    }
+    .msg-ai pre {
+      background: rgba(0,0,0,0.3); padding: 10px 12px; border-radius: 6px;
+      overflow-x: auto; margin: 8px 0; font-size: 11px; line-height: 1.5;
+    }
+    .msg-ai pre code { background: none; padding: 0; }
+    .msg-ai table {
+      width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 12px;
+    }
+    .msg-ai th {
+      text-align: left; padding: 6px 10px; font-weight: 600; color: #fff;
+      border-bottom: 1px solid rgba(79, 195, 247, 0.3);
+      background: rgba(79, 195, 247, 0.06);
+    }
+    .msg-ai td {
+      padding: 5px 10px; border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .msg-ai tr:hover td { background: rgba(255,255,255,0.03); }
+    .msg-ai ul, .msg-ai ol { margin: 6px 0; padding-left: 20px; }
+    .msg-ai li { margin: 3px 0; }
+    .msg-ai hr {
+      border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 10px 0;
+    }
+    .msg-ai p { margin: 4px 0; }
+    .msg-ai a { color: #4fc3f7; text-decoration: none; }
+    .msg-ai blockquote {
+      border-left: 3px solid rgba(79, 195, 247, 0.3); padding-left: 12px;
+      color: #999; margin: 6px 0;
+    }
+    .msg-thinking {
+      color: #666; font-style: italic; font-size: 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .msg-thinking .spinner-sm {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(79,195,247,0.2); border-top-color: #4fc3f7;
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+
+    /* ── Chat input ─────────────────────────────────── */
+    #chat-input-box {
+      padding: 12px 16px; border-top: 1px solid rgba(255,255,255,0.06);
+      display: flex; gap: 8px;
+    }
+    #chat-input {
+      flex: 1; padding: 10px 14px; border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(15, 15, 30, 0.9); color: #e0e0e0;
+      font-family: inherit; font-size: 13px; outline: none;
+      resize: none; min-height: 40px; max-height: 120px;
+    }
+    #chat-input:focus { border-color: rgba(79, 195, 247, 0.5); }
+    #chat-input::placeholder { color: #555; }
+    #chat-send {
+      padding: 8px 16px; border-radius: 10px; border: none;
+      background: #4fc3f7; color: #0a0a1a; font-weight: 600;
+      font-family: inherit; font-size: 13px; cursor: pointer;
+      align-self: flex-end;
+    }
+    #chat-send:hover { background: #81d4fa; }
+    #chat-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .msg-companion {
+      background: rgba(168, 85, 247, 0.10); border: 1px solid rgba(168, 85, 247, 0.2);
+      color: #ccc;
+    }
+    .msg-companion h1, .msg-companion h2, .msg-companion h3 { color: #c4b5fd; }
+    .msg-companion strong { color: #c4b5fd; }
+    .msg-companion th { border-bottom-color: rgba(168, 85, 247, 0.3); background: rgba(168, 85, 247, 0.06); }
+    .msg-companion code { background: rgba(168, 85, 247, 0.12); }
+    .msg-companion a { color: #a78bfa; }
+    .msg-role-tag {
+      font-size: 10px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.5px; margin-bottom: 4px; opacity: 0.7;
+    }
+    .tag-analyst { color: #4fc3f7; }
+    .tag-companion { color: #a78bfa; }
+
+    .tool-calls {
+      margin-bottom: 6px; font-size: 11px; display: flex; flex-direction: column; gap: 3px;
+    }
+    .tool-call {
+      display: flex; align-items: flex-start; gap: 6px; padding: 4px 8px;
+      background: rgba(79, 195, 247, 0.06); border-radius: 4px;
+      border-left: 2px solid rgba(79, 195, 247, 0.3); color: #888;
+    }
+    .tool-call .tc-name { color: #4fc3f7; font-weight: 600; white-space: nowrap; }
+    .tool-call .tc-args { color: #666; font-family: 'SF Mono', monospace; font-size: 10px; word-break: break-all; }
+    .tool-call .tc-result { color: #5a9; font-size: 10px; margin-left: auto; white-space: nowrap; }
+
+    .chart-container {
+      margin: 8px 0; padding: 12px; border-radius: 8px;
+      background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06);
+      max-height: 280px; position: relative; cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .chart-container:hover { border-color: rgba(79,195,247,0.3); }
+    .chart-container canvas { max-height: 250px; }
+    .chart-container::after {
+      content: '\u26F6'; position: absolute; top: 8px; right: 10px;
+      font-size: 12px; color: #555; transition: color 0.2s;
+    }
+    .chart-container:hover::after { color: #4fc3f7; }
+
+    #chart-modal {
+      display: none; position: fixed; inset: 0; z-index: 2000;
+      background: rgba(5, 5, 15, 0.92); backdrop-filter: blur(12px);
+      align-items: center; justify-content: center; cursor: pointer;
+    }
+    #chart-modal.active { display: flex; }
+    #chart-modal-inner {
+      width: 80vw; height: 70vh; max-width: 1000px;
+      background: rgba(15, 15, 30, 0.95); border-radius: 12px;
+      border: 1px solid rgba(79,195,247,0.15); padding: 24px;
+      cursor: default; position: relative;
+    }
+    #chart-modal-inner canvas { width: 100% !important; height: 100% !important; }
+    #chart-modal-close {
+      position: absolute; top: 12px; right: 16px;
+      color: #666; font-size: 20px; cursor: pointer; z-index: 1;
+      width: 28px; height: 28px; display: flex; align-items: center;
+      justify-content: center; border-radius: 50%;
+    }
+    #chart-modal-close:hover { color: #fff; background: rgba(255,255,255,0.1); }
+
+    #companion-toggle {
+      padding: 8px 16px; display: flex; align-items: center; gap: 8px;
+      font-size: 12px; color: #888; border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    #companion-toggle input[type="checkbox"] { accent-color: #a78bfa; }
+    #companion-toggle label { cursor: pointer; user-select: none; }
+    .companion-active { color: #a78bfa !important; }
+
+    /* ── Overlays on graph panel ─────────────────────── */
+    #header {
+      position: absolute; top: 20px; left: 24px; z-index: 10; pointer-events: none;
+    }
+    #header h1 { font-size: 18px; font-weight: 600; color: #fff; letter-spacing: 0.5px; }
+    #header .subtitle { font-size: 12px; color: #666; margin-top: 4px; }
+
+    #stats {
+      position: absolute; top: 20px; right: 24px; z-index: 10;
+      display: flex; gap: 16px; font-size: 11px; color: #888;
+    }
+    #stats .stat-val { color: #4fc3f7; font-weight: 600; }
+
+    /* ── Upload zone ─────────────────────────────────── */
+    #upload-bar {
+      padding: 8px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);
+      display: flex; align-items: center; gap: 8px;
+    }
+    #upload-bar label {
+      font-size: 11px; color: #888; cursor: pointer;
+      padding: 5px 12px; border-radius: 6px;
+      border: 1px dashed rgba(255,255,255,0.15);
+      transition: all 0.2s;
+    }
+    #upload-bar label:hover { border-color: #4fc3f7; color: #4fc3f7; }
+    #upload-bar .upload-name { font-size: 11px; color: #4fc3f7; }
+
+    #drop-overlay {
+      display: none; position: fixed; inset: 0; z-index: 999;
+      background: rgba(10, 10, 26, 0.85);
+      backdrop-filter: blur(8px);
+      flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    }
+    #drop-overlay.active { display: flex; }
+    #drop-overlay .drop-icon { font-size: 64px; opacity: 0.8; }
+    #drop-overlay .drop-text { font-size: 20px; color: #4fc3f7; font-weight: 600; }
+    #drop-overlay .drop-hint { font-size: 13px; color: #666; }
+    #drop-overlay .drop-border {
+      position: absolute; inset: 24px;
+      border: 3px dashed rgba(79, 195, 247, 0.4);
+      border-radius: 16px; pointer-events: none;
+    }
+
+    #view-label {
+      position: absolute; bottom: 70px; left: 24px; z-index: 10;
+      font-size: 13px; color: #4fc3f7; font-weight: 600;
+      background: rgba(10, 10, 26, 0.85); padding: 8px 14px;
+      border-radius: 8px; border: 1px solid rgba(79,195,247,0.2);
+      backdrop-filter: blur(8px); display: none; cursor: pointer;
+    }
+    #view-label:hover { border-color: rgba(79,195,247,0.5); }
+    #view-label .reset-hint { font-size: 10px; color: #666; margin-left: 8px; }
+
+    #legend {
+      position: absolute; bottom: 24px; left: 24px; z-index: 10;
+      display: flex; flex-wrap: wrap; gap: 10px; font-size: 10px;
+      background: rgba(10, 10, 26, 0.85); padding: 10px 14px;
+      border-radius: 8px; border: 1px solid rgba(255,255,255,0.06);
+      backdrop-filter: blur(8px);
+    }
+    .legend-item { display: flex; align-items: center; gap: 5px; }
+    .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+    #tooltip {
+      display: none; position: fixed; z-index: 100;
+      background: rgba(15, 15, 30, 0.95);
+      border: 1px solid rgba(79, 195, 247, 0.3);
+      border-radius: 8px; padding: 10px 14px;
+      font-size: 12px; line-height: 1.5;
+      pointer-events: none; backdrop-filter: blur(12px);
+      max-width: 400px; box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
+
+    #loading {
+      position: fixed; inset: 0; display: flex; align-items: center;
+      justify-content: center; background: #0a0a1a; z-index: 1000;
+      flex-direction: column; gap: 16px; transition: opacity 0.5s;
+    }
+    #loading .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid rgba(79, 195, 247, 0.2); border-top-color: #4fc3f7;
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading.hidden { opacity: 0; pointer-events: none; }
+
+    #messages::-webkit-scrollbar { width: 6px; }
+    #messages::-webkit-scrollbar-track { background: transparent; }
+    #messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <div id="chart-modal" onclick="if(event.target===this)closeChartModal()">
+    <div id="chart-modal-inner">
+      <div id="chart-modal-close" onclick="closeChartModal()">&times;</div>
+      <canvas id="chart-modal-canvas"></canvas>
+    </div>
+  </div>
+
+  <div id="drop-overlay">
+    <div class="drop-border"></div>
+    <div class="drop-icon">+</div>
+    <div class="drop-text">Drop your dataset</div>
+    <div class="drop-hint">CSV or JSON file</div>
+  </div>
+
+  <!-- Graph panel (left) -->
+  <div id="graph-panel">
+    <div id="header">
+      <h1 id="app-title">Cosmo</h1>
+      <div class="subtitle" id="dataset-name">No dataset loaded</div>
+    </div>
+    <div id="stats"></div>
+    <div id="legend"></div>
+    <div id="view-label" onclick="window._resetGraph()"></div>
+    <div id="empty-state" style="
+      position:absolute; inset:0; display:flex; flex-direction:column;
+      align-items:center; justify-content:center; gap:16px; color:#444;
+      pointer-events:none; z-index:5;
+    ">
+      <div style="font-size:48px; opacity:0.3;">+</div>
+      <div style="font-size:16px;">Drop a CSV or JSON to begin</div>
+      <div style="font-size:12px; color:#333;">or use the upload button in the sidebar</div>
+    </div>
+    <div id="graph"></div>
+  </div>
+
+  <!-- Chat panel (right) -->
+  <div id="chat-panel">
+    <div class="chat-header">
+      <div class="dot"></div>
+      <h2>Data Analyst</h2>
+    </div>
+    <div id="upload-bar">
+      <label for="file-upload">Upload CSV/JSON</label>
+      <input type="file" id="file-upload" accept=".csv,.json" style="display:none" />
+      <label for="file-add" style="color:#a78bfa; border-color:rgba(168,85,247,0.2);">+ Add to workspace</label>
+      <input type="file" id="file-add" accept=".csv,.json" style="display:none" />
+      <span class="upload-name" id="upload-name"></span>
+    </div>
+    <div id="companion-toggle">
+      <input type="checkbox" id="companion-check" />
+      <label for="companion-check">Companion (Gemini)</label>
+      <select id="companion-theme" style="
+        margin-left:auto; padding:3px 6px; border-radius:4px; font-size:10px;
+        background:rgba(168,85,247,0.1); border:1px solid rgba(168,85,247,0.2);
+        color:#a78bfa; font-family:inherit; outline:none;
+      ">
+        <option value="default">Default</option>
+        <option value="devils_advocate">Devil's Advocate</option>
+        <option value="anomaly_hunter">Anomaly Hunter</option>
+        <option value="optimizer">Optimizer</option>
+        <option value="connector">Connector</option>
+        <option value="storyteller">Storyteller</option>
+      </select>
+    </div>
+    <div id="messages">
+      <div class="msg msg-ai">Upload a dataset (CSV or JSON) to get started. I can analyze any data with AI-powered Pandas queries and visualize it as an interactive graph.</div>
+    </div>
+    <div id="chat-input-box">
+      <textarea id="chat-input" rows="1" placeholder="Ask about your data..." autocomplete="off"></textarea>
+      <button id="chat-send">Send</button>
+    </div>
+  </div>
+
+  <div id="tooltip">
+    <div class="tt-name" style="font-weight:600;color:#fff;font-size:13px;"></div>
+    <div class="tt-path" style="color:#666;font-size:11px;word-break:break-all;"></div>
+    <div class="tt-meta" style="color:#4fc3f7;margin-top:4px;"></div>
+  </div>
+
+  <script type="module">
+    import { Cosmograph } from '@cosmograph/cosmograph'
+
+    const API_BASE = 'http://localhost:8000'
+
+    // ── State ───────────────────────────────────────────────────────────
+    let currentPoints = []
+    let currentColumns = []
+
+    // ── Create empty Cosmograph ─────────────────────────────────────────
+    const container = document.getElementById('graph')
+    const cosmograph = new Cosmograph(container, {
+      backgroundColor: '#0a0a1a',
+      fitViewOnInit: true,
+      pointDefaultColor: '#4fc3f7',
+      enableSimulation: true,
+      simulationGravity: 0.15,
+      simulationRepulsion: 0.8,
+      simulationLinkSpring: 0.5,
+      simulationFriction: 0.85,
+      simulationDecay: 8000,
+      spaceSize: 8192,
+      showDynamicLabels: true,
+      showTopLabels: true,
+      showTopLabelsLimit: 30,
+      linkDefaultColor: 'rgba(255, 255, 255, 0.04)',
+      linkDefaultWidth: 0.5,
+    })
+
+    // ── Dynamic UI updates ──────────────────────────────────────────────
+    function updateStats(pts, lnks, columns) {
+      const statsEl = document.getElementById('stats')
+      const numericCols = columns.filter(c => {
+        const vals = pts.slice(0, 100).map(p => p[c])
+        return vals.some(v => typeof v === 'number' && !Number.isNaN(v))
+      })
+      let html = `<div>Rows <span class="stat-val">${pts.length.toLocaleString()}</span></div>`
+      html += `<div>Cols <span class="stat-val">${columns.length}</span></div>`
+      if (lnks.length > 0) html += `<div>Edges <span class="stat-val">${lnks.length.toLocaleString()}</span></div>`
+      statsEl.innerHTML = html
+    }
+
+    function updateLegend(pts, colorCol) {
+      const legendEl = document.getElementById('legend')
+      if (!colorCol) { legendEl.innerHTML = ''; return }
+      const values = [...new Set(pts.map(p => p[colorCol]).filter(Boolean))].slice(0, 12)
+      const colors = ['#4fc3f7','#f7df1e','#3178c6','#3572a5','#e34c26','#a8d08d','#ff69b4','#9b59b6','#89e051','#cb171e','#00add8','#888888']
+      legendEl.innerHTML = values.map((v, i) =>
+        `<div class="legend-item"><div class="legend-dot" style="background:${colors[i % colors.length]}"></div> ${v}</div>`
+      ).join('')
+    }
+
+    function loadDataIntoGraph(pts, lnks, gc) {
+      currentPoints = pts
+      currentColumns = Object.keys(pts[0] || {})
+
+      // Hide empty state
+      const empty = document.getElementById('empty-state')
+      if (empty) empty.style.display = 'none'
+
+      // Cosmograph requires label + ID columns to be strings
+      const labelCol = gc.pointLabelBy || gc.pointIdBy || 'id'
+      const idCol = gc.pointIdBy || 'id'
+      for (const p of pts) {
+        if (p[labelCol] != null) p[labelCol] = String(p[labelCol])
+        if (p[idCol] != null) p[idCol] = String(p[idCol])
+      }
+
+      const config = {
+        points: pts,
+        links: lnks,
+        pointIdBy: idCol,
+        pointIndexBy: 'index',
+        linkSourceBy: gc.linkSourceBy || 'source',
+        linkTargetBy: gc.linkTargetBy || 'target',
+        linkSourceIndexBy: 'sourceIndex',
+        linkTargetIndexBy: 'targetIndex',
+        pointLabelBy: labelCol,
+        pointSizeBy: gc.pointSizeBy,
+        pointSizeRange: [2, 12],
+        pointColorBy: gc.pointColorBy,
+        renderLinks: lnks.length > 0,
+        enableSimulation: true,
+        fitViewOnInit: true,
+      }
+      cosmograph.setConfig(config)
+      updateStats(pts, lnks, currentColumns)
+      updateLegend(pts, gc.pointColorBy)
+    }
+
+    // ── Tooltip ─────────────────────────────────────────────────────────
+    document.addEventListener('mousemove', e => {
+      const t = document.getElementById('tooltip')
+      if (t && t.style.display === 'block') {
+        t.style.left = (e.clientX + 16) + 'px'
+        t.style.top = (e.clientY - 10) + 'px'
+      }
+    })
+
+    // ── Chat ────────────────────────────────────────────────────────────
+    const messagesEl = document.getElementById('messages')
+    const chatInput = document.getElementById('chat-input')
+    const chatSend = document.getElementById('chat-send')
+    const companionCheck = document.getElementById('companion-check')
+    const chatHistory = []
+    let debateRunning = false
+    const MAX_DEBATE_ROUNDS = 4
+
+    let chartCounter = 0
+    const CHART_PALETTE = [
+      '#4fc3f7','#f7df1e','#a78bfa','#f87171','#34d399',
+      '#fb923c','#38bdf8','#c084fc','#fbbf24','#6ee7b7',
+      '#f472b6','#818cf8','#22d3ee','#a3e635','#e879f9',
+    ]
+
+    function buildChartConfig(spec) {
+      const type = spec.type === 'horizontalBar' ? 'bar' : spec.type
+      const indexAxis = spec.type === 'horizontalBar' ? 'y' : 'x'
+      const isPie = ['pie','doughnut','polarArea'].includes(type)
+
+      const datasets = (spec.datasets || []).map((ds, i) => {
+        const defaultColors = isPie
+          ? CHART_PALETTE.slice(0, (spec.labels || []).length)
+          : CHART_PALETTE[i % CHART_PALETTE.length]
+        return {
+          ...ds,
+          backgroundColor: ds.backgroundColor || defaultColors,
+          borderColor: isPie ? 'rgba(10,10,26,0.8)' : (ds.backgroundColor || defaultColors),
+          borderWidth: isPie ? 1 : 2,
+          fill: type === 'line' ? false : undefined,
+          tension: type === 'line' ? 0.3 : undefined,
+          pointRadius: type === 'scatter' ? 4 : undefined,
+        }
+      })
+
+      return {
+        type,
+        data: { labels: spec.labels || [], datasets },
+        options: {
+          indexAxis,
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            title: { display: !!spec.title, text: spec.title, color: '#fff', font: { size: 13, weight: 600 } },
+            legend: {
+              display: datasets.length > 1 || isPie,
+              labels: { color: '#999', font: { size: 10 } },
+            },
+          },
+          scales: isPie || type === 'radar' ? {} : {
+            x: {
+              ticks: { color: '#666', font: { size: 10 }, maxRotation: 45 },
+              title: { display: !!spec.x_label, text: spec.x_label, color: '#888' },
+              grid: { color: 'rgba(255,255,255,0.04)' },
+            },
+            y: {
+              ticks: { color: '#666', font: { size: 10 } },
+              title: { display: !!spec.y_label, text: spec.y_label, color: '#888' },
+              grid: { color: 'rgba(255,255,255,0.04)' },
+            },
+          },
+        },
+      }
+    }
+
+    function renderCharts(charts, container) {
+      if (!charts || charts.length === 0) return
+      for (const spec of charts) {
+        const wrapper = document.createElement('div')
+        wrapper.className = 'chart-container'
+        const canvas = document.createElement('canvas')
+        canvas.id = 'chart-' + (++chartCounter)
+        wrapper.appendChild(canvas)
+        container.appendChild(wrapper)
+
+        const config = buildChartConfig(spec)
+        new Chart(canvas, config)
+
+        // Click to expand
+        wrapper.addEventListener('click', () => openChartModal(spec))
+      }
+    }
+
+    let modalChart = null
+    window.closeChartModal = function() {
+      document.getElementById('chart-modal').classList.remove('active')
+      if (modalChart) { modalChart.destroy(); modalChart = null }
+    }
+
+    function openChartModal(spec) {
+      const modal = document.getElementById('chart-modal')
+      const canvas = document.getElementById('chart-modal-canvas')
+      if (modalChart) { modalChart.destroy(); modalChart = null }
+
+      // Reset canvas dimensions
+      canvas.width = 0; canvas.height = 0
+
+      modal.classList.add('active')
+
+      const config = buildChartConfig(spec)
+      // Bigger fonts for modal
+      config.options.plugins.title.font = { size: 18, weight: 600 }
+      if (config.options.plugins.legend.labels) {
+        config.options.plugins.legend.labels.font = { size: 12 }
+      }
+      if (config.options.scales?.x) config.options.scales.x.ticks.font = { size: 12 }
+      if (config.options.scales?.y) config.options.scales.y.ticks.font = { size: 12 }
+
+      modalChart = new Chart(canvas, config)
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && document.getElementById('chart-modal').classList.contains('active')) {
+        closeChartModal()
+      }
+    })
+
+    function addMessage(type, content, label, toolCalls, charts) {
+      const div = document.createElement('div')
+      const cssClass = type === 'companion' ? 'msg msg-companion' : `msg msg-${type}`
+      div.className = cssClass
+
+      if (type !== 'user') {
+        const tag = document.createElement('div')
+        tag.className = `msg-role-tag ${type === 'companion' ? 'tag-companion' : 'tag-analyst'}`
+        tag.textContent = label || (type === 'companion' ? 'Gemini - Companion' : 'Claude - Analyst')
+        div.appendChild(tag)
+
+        // Show tool calls if any
+        if (toolCalls && toolCalls.length > 0) {
+          const tcDiv = document.createElement('div')
+          tcDiv.className = 'tool-calls'
+          for (const tc of toolCalls) {
+            const el = document.createElement('div')
+            el.className = 'tool-call'
+            el.innerHTML = `<span class="tc-name">${tc.name}</span><span class="tc-args">${escHtml(tc.args_summary)}</span>${tc.result_summary ? `<span class="tc-result">${escHtml(tc.result_summary)}</span>` : ''}`
+            tcDiv.appendChild(el)
+          }
+          div.appendChild(tcDiv)
+        }
+
+        const body = document.createElement('div')
+        body.innerHTML = marked.parse(content)
+        div.appendChild(body)
+
+        // Render charts after body
+        if (charts && charts.length > 0) {
+          messagesEl.appendChild(div) // append first so canvas has dimensions
+          renderCharts(charts, div)
+          messagesEl.scrollTop = messagesEl.scrollHeight
+          return div
+        }
+      } else {
+        div.textContent = content
+      }
+      messagesEl.appendChild(div)
+      messagesEl.scrollTop = messagesEl.scrollHeight
+      return div
+    }
+
+    function escHtml(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    }
+
+    function addThinking(who) {
+      const div = document.createElement('div')
+      div.className = 'msg-thinking'
+      const color = who === 'companion' ? '#a78bfa' : '#4fc3f7'
+      const name = who === 'companion' ? 'Companion researching' : 'Analyst thinking'
+      div.innerHTML = `<div class="spinner-sm" style="border-top-color:${color}"></div> ${name}...`
+      messagesEl.appendChild(div)
+      messagesEl.scrollTop = messagesEl.scrollHeight
+      return div
+    }
+
+    async function callChat(message, role = 'analyst') {
+      const theme = document.getElementById('companion-theme').value
+      const resp = await fetch(`${API_BASE}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message,
+          history: chatHistory.slice(-12),
+          role,
+          companion_theme: theme,
+        }),
+      })
+      if (!resp.ok) throw new Error(await resp.text())
+      return resp.json()
+    }
+
+    function showViewLabel(text) {
+      const el = document.getElementById('view-label')
+      el.innerHTML = text + '<span class="reset-hint">(click to reset)</span>'
+      el.style.display = 'block'
+    }
+
+    window._resetGraph = function() {
+      cosmograph.unselectAllPoints()
+      cosmograph.fitView(800)
+      document.getElementById('view-label').style.display = 'none'
+      console.log('Graph reset')
+    }
+
+    function executeGraphCommands(commands) {
+      if (!commands || commands.length === 0) return
+
+      for (const cmd of commands) {
+        const n = cmd.indices?.length || 0
+        console.log('Graph command:', cmd.action, n, 'nodes')
+
+        switch (cmd.action) {
+          case 'zoom_to':
+            if (n > 0) {
+              cosmograph.selectPoints(cmd.indices)
+              cosmograph.fitViewByIndices(cmd.indices, 800, 0.3)
+            } else if (n === 0) {
+              cosmograph.fitView(800)
+            }
+            if (cmd.label) showViewLabel(cmd.label)
+            break
+
+          case 'select':
+            if (n > 0) cosmograph.selectPoints(cmd.indices)
+            if (cmd.label) showViewLabel(cmd.label)
+            break
+
+          case 'recolor':
+            // Recolor = select matching nodes + zoom to them (safe, no setConfig)
+            if (n > 0) {
+              cosmograph.selectPoints(cmd.indices)
+              cosmograph.fitViewByIndices(cmd.indices, 800, 0.2)
+            }
+            if (cmd.label) showViewLabel(cmd.label)
+            break
+
+          case 'resize':
+            // Resize = select + zoom (safe, no setConfig)
+            if (n > 0) {
+              cosmograph.selectPoints(cmd.indices)
+              cosmograph.fitViewByIndices(cmd.indices, 800, 0.2)
+            }
+            if (cmd.label) showViewLabel(cmd.label)
+            break
+
+          case 'filter_view':
+            if (n > 0) {
+              cosmograph.selectPoints(cmd.indices)
+              cosmograph.fitViewByIndices(cmd.indices, 800, 0.2)
+            }
+            if (cmd.label) showViewLabel(cmd.label)
+            break
+
+          case 'reset':
+            window._resetGraph()
+            break
+        }
+      }
+    }
+
+    async function sendMessage() {
+      const text = chatInput.value.trim()
+      if (!text || debateRunning) return
+
+      chatInput.value = ''
+      chatInput.style.height = 'auto'
+      addMessage('user', text)
+      chatSend.disabled = true
+
+      // Step 1: Analyst responds
+      let thinking = addThinking('analyst')
+      try {
+        const analystData = await callChat(text, 'analyst')
+        thinking.remove()
+        addMessage('ai', analystData.response, null, analystData.tool_calls, analystData.charts)
+        executeGraphCommands(analystData.graph_commands)
+
+        chatHistory.push({ role: 'user', content: text })
+        chatHistory.push({ role: 'assistant', content: `[Analyst]: ${analystData.response}` })
+
+        // Step 2: If companion is enabled, start the debate loop
+        if (companionCheck.checked) {
+          debateRunning = true
+          let lastResponse = analystData.response
+          let turn = 'companion'
+
+          for (let round = 0; round < MAX_DEBATE_ROUNDS; round++) {
+            const prompt = turn === 'companion'
+              ? `The analyst just said:\n\n${lastResponse}\n\nDig deeper, challenge, or extend this analysis. Find something they missed.`
+              : `The companion researcher just said:\n\n${lastResponse}\n\nRespond to their findings. Verify, correct, or build on their analysis.`
+
+            thinking = addThinking(turn)
+            const data = await callChat(prompt, turn === 'companion' ? 'companion' : 'analyst')
+            thinking.remove()
+
+            addMessage(turn === 'companion' ? 'companion' : 'ai', data.response, null, data.tool_calls, data.charts)
+            executeGraphCommands(data.graph_commands)
+
+            const tag = turn === 'companion' ? '[Companion]' : '[Analyst]'
+            chatHistory.push({ role: 'assistant', content: `${tag}: ${data.response}` })
+
+            lastResponse = data.response
+            turn = turn === 'companion' ? 'analyst' : 'companion'
+
+            // Stop if companion is unchecked mid-debate
+            if (!companionCheck.checked) break
+          }
+          debateRunning = false
+        }
+      } catch (e) {
+        thinking?.remove()
+        addMessage('ai', 'Error: ' + e.message)
+      } finally {
+        chatSend.disabled = false
+        debateRunning = false
+        chatInput.focus()
+      }
+    }
+
+    chatSend.addEventListener('click', sendMessage)
+    chatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        sendMessage()
+      }
+    })
+
+    chatInput.addEventListener('input', () => {
+      chatInput.style.height = 'auto'
+      chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px'
+    })
+
+    // ── File upload ─────────────────────────────────────────────────────
+    const fileInput = document.getElementById('file-upload')
+    const uploadName = document.getElementById('upload-name')
+
+    fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0]
+      if (!file) return
+      await uploadFile(file, false)
+    })
+
+    document.getElementById('file-add').addEventListener('change', async (e) => {
+      const file = e.target.files[0]
+      if (!file) return
+      await uploadFile(file, true)
+    })
+
+    // Drag and drop anywhere on the page
+    const dropOverlay = document.getElementById('drop-overlay')
+    let dragCounter = 0
+
+    document.addEventListener('dragenter', (e) => {
+      e.preventDefault()
+      dragCounter++
+      dropOverlay.classList.add('active')
+    })
+    document.addEventListener('dragleave', (e) => {
+      e.preventDefault()
+      dragCounter--
+      if (dragCounter <= 0) { dropOverlay.classList.remove('active'); dragCounter = 0 }
+    })
+    document.addEventListener('dragover', (e) => e.preventDefault())
+    document.addEventListener('drop', async (e) => {
+      e.preventDefault()
+      dragCounter = 0
+      dropOverlay.classList.remove('active')
+      const file = e.dataTransfer.files[0]
+      if (file && (file.name.endsWith('.csv') || file.name.endsWith('.json'))) {
+        await uploadFile(file)
+      }
+    })
+
+    async function uploadFile(file, append = false) {
+      uploadName.textContent = 'Uploading...'
+      const formData = new FormData()
+      formData.append('file', file)
+
+      try {
+        const url = `${API_BASE}/api/upload${append ? '?append=true' : ''}`
+        const resp = await fetch(url, {
+          method: 'POST',
+          body: formData,
+        })
+        if (!resp.ok) throw new Error(await resp.text())
+        const data = await resp.json()
+
+        uploadName.textContent = `${file.name} (${data.rows.toLocaleString()} rows)`
+        document.getElementById('dataset-name').textContent = file.name
+        document.getElementById('app-title').textContent = 'Cosmo'
+
+        if (append) {
+          addMessage('ai', `Added **${file.name}** to workspace: **${data.rows.toLocaleString()}** rows, **${data.columns.length}** columns.\n\nColumns: \`${data.columns.join('`, `')}\`\n\nI can now find connections between your datasets. Ask me to compare or join them.`)
+        } else {
+          addMessage('ai', `Dataset **${file.name}** loaded: **${data.rows.toLocaleString()}** rows, **${data.columns.length}** columns.\n\nColumns: \`${data.columns.join('`, `')}\`\n\nAsk me anything about this data.`)
+        }
+
+        // Fetch combined graph data
+        const graphResp = await fetch(`${API_BASE}/api/graph-data`)
+        const graphData = await graphResp.json()
+        // Use graph_config from graph-data (has multi-dataset awareness) or fall back to upload response
+        const gc = graphData.graph_config || data.graph_config
+
+        const newPoints = graphData.points.map((p, i) => ({ ...p, index: p.index ?? i }))
+
+        let newLinks = graphData.links || []
+        if (newLinks.length > 0 && gc.linkSourceBy && gc.linkTargetBy) {
+          const idMap = new Map(newPoints.map(p => [p[gc.pointIdBy], p.index]))
+          newLinks = newLinks.map(l => ({
+            ...l,
+            sourceIndex: idMap.get(l[gc.linkSourceBy]) ?? 0,
+            targetIndex: idMap.get(l[gc.linkTargetBy]) ?? 0,
+          }))
+        }
+
+        loadDataIntoGraph(newPoints, newLinks, gc)
+
+        if (!append) chatHistory.length = 0
+        console.log('Loaded dataset:', file.name, newPoints.length, 'rows')
+      } catch (e) {
+        uploadName.textContent = 'Upload failed'
+        addMessage('ai', 'Upload error: ' + e.message)
+      }
+    }
+
+    console.log('Cosmo ready — drop a dataset to begin')
+  </script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+node_modules/
+venv/
+data/
+.env
+__pycache__/
+backend/plugins.json
+*.pyc
+.vite/
+dist/
+.DS_Store
+.claude/
