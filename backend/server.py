@@ -17,6 +17,7 @@ OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL_ANALYST = "anthropic/claude-sonnet-4.6"
 MODEL_COMPANION = "google/gemini-3.1-pro-preview"
+MODEL_DASHBOARD = "anthropic/claude-sonnet-4.6"
 
 # ── App ──────────────────────────────────────────────────────────────
 
@@ -285,6 +286,9 @@ Key principles:
 8. Prefer charts over tables whenever possible — they're more impactful
 9. EXPLAIN your methodology: before showing results, briefly state what analysis you're running and why (e.g. "I'll group by X and aggregate Y to find...")
 10. When you create a computed column or dynamic links, explain the logic and why it matters
+11. ALWAYS comment your Pandas code extensively — every line should have a comment explaining the WHY, not just the what. The user can see your code and wants to learn from it. Example:
+    # Group by occupation to find which jobs correlate with poor sleep
+    result = df.groupby('occupation')['sleep_hours'].mean().sort_values()
 - category: 'directory', 'code', 'web', 'data', 'docs', 'media', 'shell', 'other'
 - fileSize: size in bytes (0 for directories)
 - depth: nesting level from root
@@ -350,6 +354,7 @@ class ToolCall(BaseModel):
     name: str
     args_summary: str = ""
     result_summary: str = ""
+    full_code: str = ""
 
 
 class ChartSpec(BaseModel):
@@ -442,10 +447,16 @@ def _run_llm_with_tools(messages: list[dict], model: str) -> tuple[str, list[dic
                     elif "count" in result:
                         result_summary = f"{result['count']} results"
 
+                # Capture full code for expandable view
+                full_code = ""
+                if fn_name in ("run_pandas_code", "create_links", "add_column"):
+                    full_code = fn_args.get("code", "")
+
                 tool_log.append({
                     "name": fn_name,
                     "args_summary": args_summary,
                     "result_summary": result_summary,
+                    "full_code": full_code,
                 })
 
                 messages.append({
@@ -553,6 +564,136 @@ def _execute_tool(name: str, args: dict) -> dict:
         }
     else:
         return {"error": f"Unknown tool: {name}"}
+
+
+REPORT_SYSTEM = """You are a Report Writer agent. You read the ongoing conversation between data analysts and produce a polished markdown report.
+
+Write a professional data analysis report with:
+1. **Executive Summary** — 2-3 sentence overview of the dataset and key findings
+2. **Key Metrics** — important numbers in a markdown table
+3. **Findings** — each major finding as an H2 section with explanation
+4. **Recommendations** — actionable next steps based on the analysis
+
+Rules:
+- Use proper markdown: headers, bold, tables, bullet points
+- Include actual numbers from the conversation — don't invent data
+- Be concise but thorough
+- Each time you're called, produce the COMPLETE updated report (not just additions)
+- The report should read as a standalone document someone could share with stakeholders"""
+
+
+DASHBOARD_SYSTEM = """You are a Dashboard Builder agent. You read the ongoing conversation between an analyst and companion researcher and build a live dashboard.
+
+Your ONLY job: output a JSON array of dashboard widgets. NO markdown, NO explanation. Just the JSON array.
+
+Widget types:
+- {"type":"kpi","label":"Total Records","value":"31,000","delta":"+5%","color":"#4fc3f7"}
+- {"type":"chart","chart_type":"bar","title":"Top Categories","labels":["A","B"],"datasets":[{"label":"Count","data":[10,20]}]}
+- {"type":"chart","chart_type":"pie","title":"Distribution","labels":["X","Y"],"datasets":[{"label":"Share","data":[60,40]}]}
+- {"type":"chart","chart_type":"line","title":"Trend","labels":["Jan","Feb"],"datasets":[{"label":"Sales","data":[100,150]}]}
+- {"type":"insight","text":"Key finding: 60% of storage is consumed by 3 projects"}
+
+Rules:
+1. Output ONLY a valid JSON array of widgets. Nothing else.
+2. Use the actual numbers and findings from the conversation — don't invent data.
+3. KPIs first, then charts, then insights.
+4. Max 8 widgets total.
+5. Update based on what's NEW in the conversation — build on previous dashboard, don't repeat.
+6. Use these colors: #4fc3f7 (blue), #f7df1e (yellow), #a78bfa (purple), #f87171 (red), #34d399 (green), #fb923c (orange)"""
+
+
+class DashboardRequest(BaseModel):
+    conversation: list[dict] = []
+    current_widgets: list[dict] = []
+
+
+@app.post("/api/dashboard")
+async def build_dashboard(req: DashboardRequest):
+    """Dashboard agent reads conversation and outputs widgets."""
+    messages = [{"role": "system", "content": DASHBOARD_SYSTEM}]
+
+    # Summarize conversation
+    conv_text = ""
+    for msg in req.conversation[-8:]:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")[:500]
+        conv_text += f"\n[{role}]: {content}\n"
+
+    if req.current_widgets:
+        conv_text += f"\n\nCurrent dashboard has {len(req.current_widgets)} widgets. Build on it, update numbers, add new insights."
+
+    # Add dataset schema
+    df = analyzer.get_df()
+    if df is not None and not df.empty:
+        schema = f"Dataset: {analyzer._dataset_name}, {len(df)} rows. Columns: {', '.join(df.columns[:15])}"
+        conv_text = schema + "\n\n" + conv_text
+
+    messages.append({"role": "user", "content": f"Build/update the dashboard based on this conversation:\n{conv_text}"})
+
+    try:
+        payload = {
+            "model": MODEL_DASHBOARD,
+            "messages": messages,
+            "temperature": 0.2,
+            "max_tokens": 2048,
+        }
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_KEY}",
+            "Content-Type": "application/json",
+        }
+        resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        content = data["choices"][0]["message"]["content"]
+
+        # Parse JSON from response (handle markdown code blocks)
+        content = content.strip()
+        if content.startswith("```"):
+            content = content.split("\n", 1)[1].rsplit("```", 1)[0]
+        widgets = json.loads(content)
+        return {"widgets": widgets}
+    except Exception as e:
+        print(f"Dashboard error: {e}")
+        return {"widgets": []}
+
+
+@app.post("/api/report")
+async def build_report(req: DashboardRequest):
+    """Report agent reads conversation and produces a markdown report."""
+    messages = [{"role": "system", "content": REPORT_SYSTEM}]
+
+    conv_text = ""
+    for msg in req.conversation[-12:]:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")[:800]
+        conv_text += f"\n[{role}]: {content}\n"
+
+    df = analyzer.get_df()
+    if df is not None and not df.empty:
+        schema = f"Dataset: {analyzer._dataset_name}, {len(df)} rows. Columns: {', '.join(df.columns[:15])}"
+        conv_text = schema + "\n\n" + conv_text
+
+    messages.append({"role": "user", "content": f"Write/update the analysis report based on this conversation:\n{conv_text}"})
+
+    try:
+        payload = {
+            "model": MODEL_DASHBOARD,
+            "messages": messages,
+            "temperature": 0.2,
+            "max_tokens": 3000,
+        }
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_KEY}",
+            "Content-Type": "application/json",
+        }
+        resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=45)
+        resp.raise_for_status()
+        data = resp.json()
+        content = data["choices"][0]["message"]["content"]
+        return {"markdown": content}
+    except Exception as e:
+        print(f"Report error: {e}")
+        return {"markdown": ""}
 
 
 @app.get("/api/stats")

@@ -17,7 +17,7 @@
     }
 
     /* ── Layout: graph left, chat right ─────────────── */
-    #graph-panel { flex: 1; position: relative; height: 100vh; }
+    #graph-panel { flex: 1; height: 100vh; display: flex; flex-direction: column; }
     #graph { width: 100%; height: 100%; }
 
     #chat-panel {
@@ -145,9 +145,22 @@
       background: rgba(79, 195, 247, 0.06); border-radius: 4px;
       border-left: 2px solid rgba(79, 195, 247, 0.3); color: #888;
     }
+    .tool-call { cursor: pointer; }
+    .tool-call:hover { background: rgba(79, 195, 247, 0.08); }
     .tool-call .tc-name { color: #4fc3f7; font-weight: 600; white-space: nowrap; }
     .tool-call .tc-args { color: #666; font-family: 'SF Mono', monospace; font-size: 10px; word-break: break-all; }
     .tool-call .tc-result { color: #5a9; font-size: 10px; margin-left: auto; white-space: nowrap; }
+    .tool-call .tc-toggle { color: #555; font-size: 10px; margin-left: 4px; }
+    .tool-call .tc-code {
+      display: none; margin-top: 6px; padding: 8px 10px;
+      background: rgba(0,0,0,0.4); border-radius: 4px;
+      font-family: 'SF Mono', monospace; font-size: 11px;
+      color: #aaa; white-space: pre-wrap; line-height: 1.5;
+      max-height: 300px; overflow-y: auto;
+    }
+    .tool-call .tc-code .comment { color: #6a9955; }
+    .tool-call.expanded .tc-code { display: block; }
+    .tool-call.expanded .tc-toggle { color: #4fc3f7; }
 
     .chart-container {
       margin: 8px 0; padding: 12px; border-radius: 8px;
@@ -192,18 +205,114 @@
     #companion-toggle label { cursor: pointer; user-select: none; }
     .companion-active { color: #a78bfa !important; }
 
-    /* ── Overlays on graph panel ─────────────────────── */
-    #header {
-      position: absolute; top: 20px; left: 24px; z-index: 10; pointer-events: none;
+    /* ── Dashboard widgets ────────────────────────────── */
+    .dash-kpi {
+      background: rgba(15,15,30,0.9); border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px; padding: 14px 16px; backdrop-filter: blur(8px);
     }
-    #header h1 { font-size: 18px; font-weight: 600; color: #fff; letter-spacing: 0.5px; }
-    #header .subtitle { font-size: 12px; color: #666; margin-top: 4px; }
+    .dash-kpi .kpi-label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+    .dash-kpi .kpi-value { font-size: 24px; font-weight: 700; color: #fff; margin: 4px 0; }
+    .dash-kpi .kpi-delta { font-size: 11px; }
 
-    #stats {
-      position: absolute; top: 20px; right: 24px; z-index: 10;
-      display: flex; gap: 16px; font-size: 11px; color: #888;
+    .dash-chart {
+      background: rgba(15,15,30,0.9); border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px; padding: 12px; backdrop-filter: blur(8px);
+      grid-column: span 2; min-height: 180px;
     }
-    #stats .stat-val { color: #4fc3f7; font-weight: 600; }
+    .dash-chart canvas { max-height: 160px; }
+
+    .dash-insight {
+      background: rgba(79,195,247,0.06); border: 1px solid rgba(79,195,247,0.15);
+      border-radius: 10px; padding: 12px 14px; font-size: 12px; color: #ccc;
+      grid-column: span 2; line-height: 1.5;
+    }
+
+    .dash-spinner {
+      position: absolute; top: 55px; right: 20px; z-index: 16;
+      font-size: 10px; color: #a78bfa; display: none; align-items: center; gap: 6px;
+    }
+    .dash-spinner.active { display: flex; }
+    .dash-spinner .spinner-sm {
+      width: 10px; height: 10px; border: 2px solid rgba(168,85,247,0.2);
+      border-top-color: #a78bfa; border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+
+    /* ── Tab bar ──────────────────────────────────────── */
+    #tab-bar {
+      display: flex; gap: 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+      background: rgba(10,10,26,0.95); z-index: 20; position: relative;
+    }
+    .tab-btn {
+      padding: 10px 20px; font-size: 12px; font-weight: 600;
+      font-family: inherit; color: #666; background: none; border: none;
+      cursor: pointer; border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+    .tab-btn:hover { color: #aaa; }
+    .tab-btn.active { color: #4fc3f7; border-bottom-color: #4fc3f7; }
+    .tab-btn .tab-dot {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      margin-left: 6px; vertical-align: middle;
+    }
+
+    #tab-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 20px 0;
+    }
+    #tab-header h1 { font-size: 16px; font-weight: 600; color: #fff; }
+    #tab-header .subtitle { font-size: 11px; color: #666; margin-top: 2px; }
+    #tab-header-right { display: flex; gap: 12px; font-size: 11px; color: #888; }
+    #tab-header-right .stat-val { color: #4fc3f7; font-weight: 600; }
+
+    .tab-content { display: none !important; flex: 1; min-height: 0; position: relative; overflow: hidden; }
+    .tab-content.active { display: flex !important; flex-direction: column; }
+
+    /* Graph tab */
+    #tab-graph.active { position: relative; }
+    #tab-graph #graph { flex: 1; min-height: 0; }
+
+    /* Dashboard tab */
+    #tab-dashboard.active {
+      display: grid !important; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 12px; align-content: start; overflow-y: auto; padding: 16px;
+    }
+    #tab-dashboard:empty::after {
+      content: 'Dashboard builds automatically as the agents analyze your data.';
+      color: #444; font-size: 13px; grid-column: 1 / -1; text-align: center;
+      padding: 60px 20px;
+    }
+
+    /* Report tab */
+    #tab-report.active {
+      display: flex !important; overflow-y: auto; padding: 24px 32px;
+    }
+    #tab-report:empty::after {
+      content: 'Report builds automatically as insights accumulate.';
+      color: #444; font-size: 13px; text-align: center; padding: 60px 20px;
+    }
+    #tab-report .report-content {
+      color: #ccc; font-size: 13px; line-height: 1.7; max-width: 800px;
+    }
+    #tab-report h1, #tab-report h2, #tab-report h3 { color: #fff; margin: 16px 0 8px; }
+    #tab-report h1 { font-size: 20px; }
+    #tab-report h2 { font-size: 16px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 6px; }
+    #tab-report table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12px; }
+    #tab-report th { text-align: left; padding: 6px 10px; color: #fff; border-bottom: 1px solid rgba(79,195,247,0.2); }
+    #tab-report td { padding: 5px 10px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    #tab-report code { background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 3px; }
+    #tab-report pre { background: rgba(0,0,0,0.3); padding: 10px; border-radius: 6px; overflow-x: auto; }
+    #tab-report strong { color: #fff; }
+    #tab-report .chart-container { max-height: 300px; margin: 12px 0; }
+    #report-export {
+      position: sticky; top: 0; z-index: 5; padding: 8px 0 12px;
+      background: #0a0a1a;
+    }
+    #report-export button {
+      padding: 6px 16px; border-radius: 6px; border: 1px solid rgba(79,195,247,0.3);
+      background: rgba(79,195,247,0.1); color: #4fc3f7; font-family: inherit;
+      font-size: 12px; cursor: pointer;
+    }
+    #report-export button:hover { background: rgba(79,195,247,0.2); }
 
     /* ── Upload zone ─────────────────────────────────── */
     #upload-bar {
@@ -298,25 +407,50 @@
     <div class="drop-hint">CSV or JSON file</div>
   </div>
 
-  <!-- Graph panel (left) -->
+  <!-- Main panel (left) -->
   <div id="graph-panel">
-    <div id="header">
-      <h1 id="app-title">Cosmo</h1>
-      <div class="subtitle" id="dataset-name">No dataset loaded</div>
+    <div id="tab-header">
+      <div>
+        <h1 id="app-title">Cosmo</h1>
+        <div class="subtitle" id="dataset-name">No dataset loaded</div>
+      </div>
+      <div id="tab-header-right"></div>
     </div>
-    <div id="stats"></div>
-    <div id="legend"></div>
-    <div id="view-label" onclick="window._resetGraph()"></div>
-    <div id="empty-state" style="
-      position:absolute; inset:0; display:flex; flex-direction:column;
-      align-items:center; justify-content:center; gap:16px; color:#444;
-      pointer-events:none; z-index:5;
-    ">
-      <div style="font-size:48px; opacity:0.3;">+</div>
-      <div style="font-size:16px;">Drop a CSV or JSON to begin</div>
-      <div style="font-size:12px; color:#333;">or use the upload button in the sidebar</div>
+    <div id="tab-bar">
+      <button class="tab-btn active" data-tab="graph">Graph</button>
+      <button class="tab-btn" data-tab="dashboard">Dashboard<span class="tab-dot" id="dash-dot" style="background:#a78bfa;display:none"></span></button>
+      <button class="tab-btn" data-tab="report">Report<span class="tab-dot" id="report-dot" style="background:#34d399;display:none"></span></button>
+      <div style="flex:1"></div>
+      <div class="dash-spinner" id="dash-spinner"><div class="spinner-sm"></div> updating</div>
     </div>
-    <div id="graph"></div>
+
+    <!-- Graph tab -->
+    <div id="tab-graph" class="tab-content active">
+      <div id="stats" style="position:absolute;top:8px;right:12px;z-index:10;display:flex;gap:12px;font-size:11px;color:#888;"></div>
+      <div id="legend" style="position:absolute;bottom:16px;left:12px;z-index:10;"></div>
+      <div id="view-label" onclick="window._resetGraph()" style="position:absolute;bottom:56px;left:12px;z-index:10;"></div>
+      <div id="empty-state" style="
+        position:absolute; inset:0; display:flex; flex-direction:column;
+        align-items:center; justify-content:center; gap:16px; color:#444;
+        pointer-events:none; z-index:5;
+      ">
+        <div style="font-size:48px; opacity:0.3;">+</div>
+        <div style="font-size:16px;">Drop a CSV or JSON to begin</div>
+        <div style="font-size:12px; color:#333;">or use the upload button in the sidebar</div>
+      </div>
+      <div id="graph" style="flex:1;"></div>
+    </div>
+
+    <!-- Dashboard tab -->
+    <div id="tab-dashboard" class="tab-content"></div>
+
+    <!-- Report tab -->
+    <div id="tab-report" class="tab-content">
+      <div id="report-export">
+        <button onclick="window.print()">Export PDF</button>
+      </div>
+      <div class="report-content" id="report-content"></div>
+    </div>
   </div>
 
   <!-- Chat panel (right) -->
@@ -367,6 +501,16 @@
     import { Cosmograph } from '@cosmograph/cosmograph'
 
     const API_BASE = 'http://localhost:8000'
+
+    // ── Tabs ────────────────────────────────────────────────────────────
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'))
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'))
+        btn.classList.add('active')
+        document.getElementById('tab-' + btn.dataset.tab).classList.add('active')
+      })
+    })
 
     // ── State ───────────────────────────────────────────────────────────
     let currentPoints = []
@@ -580,6 +724,102 @@
       }
     })
 
+    // ── Dashboard Agent ─────────────────────────────────────────────────
+    let dashboardWidgets = []
+    let dashChartCounter = 0
+
+    async function updateDashboard() {
+      const spinner = document.getElementById('dash-spinner')
+      spinner.classList.add('active')
+
+      try {
+        const resp = await fetch(`${API_BASE}/api/dashboard`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversation: chatHistory.slice(-8),
+            current_widgets: dashboardWidgets,
+          }),
+        })
+        if (!resp.ok) return
+        const data = await resp.json()
+        if (data.widgets && data.widgets.length > 0) {
+          dashboardWidgets = data.widgets
+          renderDashboard(data.widgets)
+        }
+      } catch (e) {
+        console.log('Dashboard update failed:', e)
+      } finally {
+        spinner.classList.remove('active')
+      }
+
+      // Also update report in parallel
+      updateReport()
+    }
+
+    async function updateReport() {
+      try {
+        const resp = await fetch(`${API_BASE}/api/report`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversation: chatHistory.slice(-12),
+          }),
+        })
+        if (!resp.ok) return
+        const data = await resp.json()
+        if (data.markdown) {
+          const el = document.getElementById('report-content')
+          el.innerHTML = marked.parse(data.markdown)
+          document.getElementById('report-dot').style.display = 'inline-block'
+        }
+      } catch (e) {
+        console.log('Report update failed:', e)
+      }
+    }
+
+    function renderDashboard(widgets) {
+      const el = document.getElementById('tab-dashboard')
+      el.innerHTML = ''
+      // Show dot on Dashboard tab when it has content
+      document.getElementById('dash-dot').style.display = widgets.length > 0 ? 'inline-block' : 'none'
+
+      for (const w of widgets) {
+        if (w.type === 'kpi') {
+          const div = document.createElement('div')
+          div.className = 'dash-kpi'
+          const deltaColor = (w.delta || '').startsWith('+') ? '#34d399' : (w.delta || '').startsWith('-') ? '#f87171' : '#888'
+          div.innerHTML = `
+            <div class="kpi-label">${escHtml(w.label || '')}</div>
+            <div class="kpi-value" style="color:${w.color || '#fff'}">${escHtml(String(w.value || ''))}</div>
+            ${w.delta ? `<div class="kpi-delta" style="color:${deltaColor}">${escHtml(w.delta)}</div>` : ''}
+          `
+          el.appendChild(div)
+        } else if (w.type === 'chart') {
+          const div = document.createElement('div')
+          div.className = 'dash-chart'
+          const canvas = document.createElement('canvas')
+          canvas.id = 'dash-chart-' + (++dashChartCounter)
+          div.appendChild(canvas)
+          el.appendChild(div)
+
+          const spec = {
+            type: w.chart_type || 'bar',
+            title: w.title || '',
+            labels: w.labels || [],
+            datasets: w.datasets || [],
+          }
+          const config = buildChartConfig(spec)
+          new Chart(canvas, config)
+        } else if (w.type === 'insight') {
+          const div = document.createElement('div')
+          div.className = 'dash-insight'
+          div.textContent = w.text || ''
+          el.appendChild(div)
+        }
+      }
+    }
+
     function addMessage(type, content, label, toolCalls, charts) {
       const div = document.createElement('div')
       const cssClass = type === 'companion' ? 'msg msg-companion' : `msg msg-${type}`
@@ -598,7 +838,19 @@
           for (const tc of toolCalls) {
             const el = document.createElement('div')
             el.className = 'tool-call'
-            el.innerHTML = `<span class="tc-name">${tc.name}</span><span class="tc-args">${escHtml(tc.args_summary)}</span>${tc.result_summary ? `<span class="tc-result">${escHtml(tc.result_summary)}</span>` : ''}`
+            const hasCode = tc.full_code && tc.full_code.length > 0
+            el.innerHTML = `
+              <div style="display:flex;align-items:flex-start;gap:6px;width:100%">
+                <span class="tc-name">${tc.name}</span>
+                <span class="tc-args">${escHtml(tc.args_summary)}</span>
+                ${tc.result_summary ? `<span class="tc-result">${escHtml(tc.result_summary)}</span>` : ''}
+                ${hasCode ? `<span class="tc-toggle">&#9654; code</span>` : ''}
+              </div>
+              ${hasCode ? `<div class="tc-code">${highlightCode(tc.full_code)}</div>` : ''}
+            `
+            if (hasCode) {
+              el.addEventListener('click', () => el.classList.toggle('expanded'))
+            }
             tcDiv.appendChild(el)
           }
           div.appendChild(tcDiv)
@@ -625,6 +877,12 @@
 
     function escHtml(s) {
       return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    }
+
+    function highlightCode(code) {
+      // Escape HTML first, then highlight comments
+      return escHtml(code)
+        .replace(/(#.*)/g, '<span class="comment">$1</span>')
     }
 
     function addThinking(who) {
@@ -743,6 +1001,9 @@
         chatHistory.push({ role: 'user', content: text })
         chatHistory.push({ role: 'assistant', content: `[Analyst]: ${analystData.response}` })
 
+        // Dashboard agent builds/updates in background after each response
+        updateDashboard()
+
         // Step 2: If companion is enabled, start the debate loop
         if (companionCheck.checked) {
           debateRunning = true
@@ -766,6 +1027,9 @@
 
             lastResponse = data.response
             turn = turn === 'companion' ? 'analyst' : 'companion'
+
+            // Dashboard updates with each debate round
+            updateDashboard()
 
             // Stop if companion is unchecked mid-debate
             if (!companionCheck.checked) break
