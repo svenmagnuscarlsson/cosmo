@@ -145,12 +145,13 @@
       background: rgba(79, 195, 247, 0.06); border-radius: 4px;
       border-left: 2px solid rgba(79, 195, 247, 0.3); color: #888;
     }
-    .tool-call { cursor: pointer; }
+    .tool-call { cursor: pointer; flex-direction: column; }
     .tool-call:hover { background: rgba(79, 195, 247, 0.08); }
+    .tool-call .tc-row1 { display: flex; align-items: center; gap: 6px; }
     .tool-call .tc-name { color: #4fc3f7; font-weight: 600; white-space: nowrap; }
-    .tool-call .tc-args { color: #666; font-family: 'SF Mono', monospace; font-size: 10px; word-break: break-all; }
-    .tool-call .tc-result { color: #5a9; font-size: 10px; margin-left: auto; white-space: nowrap; }
-    .tool-call .tc-toggle { color: #555; font-size: 10px; margin-left: 4px; }
+    .tool-call .tc-result { color: #5a9; font-size: 10px; }
+    .tool-call .tc-toggle { color: #555; font-size: 10px; margin-left: auto; }
+    .tool-call .tc-args { color: #666; font-family: 'SF Mono', monospace; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .tool-call .tc-code {
       display: none; margin-top: 6px; padding: 8px 10px;
       background: rgba(0,0,0,0.4); border-radius: 4px;
@@ -840,12 +841,12 @@
             el.className = 'tool-call'
             const hasCode = tc.full_code && tc.full_code.length > 0
             el.innerHTML = `
-              <div style="display:flex;align-items:flex-start;gap:6px;width:100%">
+              <div class="tc-row1">
                 <span class="tc-name">${tc.name}</span>
-                <span class="tc-args">${escHtml(tc.args_summary)}</span>
                 ${tc.result_summary ? `<span class="tc-result">${escHtml(tc.result_summary)}</span>` : ''}
                 ${hasCode ? `<span class="tc-toggle">&#9654; code</span>` : ''}
               </div>
+              <div class="tc-args">${escHtml(tc.args_summary)}</div>
               ${hasCode ? `<div class="tc-code">${highlightCode(tc.full_code)}</div>` : ''}
             `
             if (hasCode) {
